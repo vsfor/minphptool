@@ -1,7 +1,6 @@
 <?php
 namespace mt\app\cmd\test;
 
-use jyii\base\excel\XLSXWriter;
 use mt\core\db\MySQLQuery;
 use mt\core\excel\SimpleXLSXGen;
 use mt\core\lib\JCli;
@@ -13,9 +12,11 @@ class IndexAction
 {
     public function run($params=[])
     {
+        showLog($params['msg'] ?? 'hi~');
         showLog(getMicroDate());
         showLog(__FILE__.':'.__LINE__);
         showLog($_SERVER['argv']);
+        showLog($params);
         showLog(get_class_methods($this));
         $fun = JCli::prompt('>input the test fun name:',['required' => true]);
         if (method_exists($this, $fun)) {

@@ -1,22 +1,23 @@
 #### mini tool by php
 
-简易工具包，常用于脚本化工具及三方库集成测试
+PHP简易工具包
+
+Usage: `composer create-project jpp/mintool mpt dev-main`
 
 ##### 运行模式
 
-- 命令行脚本
+- 命令行脚本  `php mpt -r cmd/test/index -p "a=b&c=3"`
 - php-fpm API `路由仅支持 小写字母、数字、中划线`
-- phar 打包部署
+- phar 打包部署 `php -d phar.readonly=0 ./mpt -r phar/pack`
 
 ##### 基础功能集成
 
-- 动态加载配置文件 基于`J_ENV`
-- 日志 基于php`error_log`
+- 动态加载配置文件 基于 `J_ENV`
+- 日志 基于php `error_log`
 - MySQL数据库连接及查询操作封装
-- Redis连接基于php redis扩展`https://pecl.php.net/package/redis`
-- Excel 文件读写`csv xls xlsx`
+- Redis连接基于php redis扩展 `https://pecl.php.net/package/redis`
+- Excel 文件读写 `csv xls xlsx`
 - Phar 打包，确认不使用phar打包时，可简化core/functions.php文件中的appBasePath方法
-- 打包命令 `php -d phar.readonly=0 ./mpt -r phar/pack`
 
 ##### nginx php-fpm 配置样例
 
