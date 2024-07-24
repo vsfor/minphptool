@@ -1,0 +1,6 @@
+*
+!.gitignore
+!fileIO
+!logs
+!public
+!tmp

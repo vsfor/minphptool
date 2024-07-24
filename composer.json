@@ -1,0 +1,20 @@
+{
+    "name": "jpp/mintool",
+    "description": "j project php mini tool",
+    "type": "project",
+    "require": {
+        "php": ">=7.2"
+    },
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "wj",
+            "email": "jeen@vsfor.com"
+        }
+    ],
+    "scripts": {
+        "post-create-project-cmd": [
+            "@php mpt -r app/init"
+        ]
+    }
+}

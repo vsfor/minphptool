@@ -1,0 +1,5 @@
+*
+!.gitignore
+!config
+!runtime
+!index.php

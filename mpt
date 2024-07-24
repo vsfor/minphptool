@@ -1,0 +1,81 @@
+#!/usr/bin/env php
+<?php
+/**
+ * 命令行 入口文件
+ * 最多支持三层结构
+ * 如： php run.php -r cmd/test/index 可直接使用 php run.php -r
+ * 超过三层时 -r a/b/c/d/e 等价于 -r a/b/c-d-e
+ */
+defined('BATH_PATH') or define('BASE_PATH', __DIR__); // 项目路径
+defined('J_DEBUG') or define('J_DEBUG', true);//是否调试模式
+defined('J_ENV') or define('J_ENV', 'demo'); //环境｜主机｜项目
+require BASE_PATH . '/core/autoload.php';
+
+$shortOpts = "r:"; // route
+$shortOpts .= "p:"; // params
+$shortOpts .= "h"; //? show help
+$longOpts  = array(
+    "params::",    // Optional value  @see -p 优先级更高
+    "help",           // show help
+);
+$options = getopt($shortOpts, $longOpts);
+
+if($argc == 1 || isset($options['h']) || isset($options['help'])) {
+    echo 'Usage:#php run.php -r action [-p|--params]'.PHP_EOL;
+    echo 'Use -p or --params to set parameters.'.PHP_EOL
+        .'EG: -p "a=str&b=2" '.PHP_EOL
+        .'OR: --params="a=str&b=2" '.PHP_EOL;
+    echo '默认 action = index '.PHP_EOL
+        .'样例:#php run.php -r index -p="msg=hello world"'.PHP_EOL;
+    echo 'Use -h or --help to show this help'.PHP_EOL;
+    exit();
+}
+
+//解析参数
+$params = [];
+if (isset($options['p'])) {
+    parse_str($options['p'], $params);
+}
+if (isset($options['params'])) {
+    parse_str($options['params'],$params);
+}
+if (empty($options) && !empty($_SERVER['argv'][2])) {
+    if (strncmp($_SERVER['argv'][2],'-',1) !== 0) {
+        parse_str($_SERVER['argv'][2], $params);
+    } else if ($_SERVER['argv'][2] == '-p') {
+        parse_str($_SERVER['argv'][3]??'', $params);
+    } else if (strncmp($_SERVER['argv'][2],'--params=',9) === 0) {
+        parse_str(substr($_SERVER['argv'][2],9), $params);
+    }
+}
+
+//解析路由
+if (!empty($options['r'])) {
+    $route = trim($options['r'],' /');
+} else if (strncmp($_SERVER['argv'][1] ?? '-','-',1) !== 0) {
+    $route = trim($_SERVER['argv'][1],' /');
+} else {
+    $route = 'cmd/test/index';
+}
+
+$path = explode('/', $route, 3);
+$pathLen = count($path);
+
+$action = str_replace('/','-',$path[$pathLen-1] ?? 'index');
+$controller = $path[$pathLen-2] ?? 'test';
+$module = $path[$pathLen-3] ?? 'cmd';
+
+$actionStr1 = ucwords(implode(' ', explode('-', $action)));
+$actionStr2 = str_replace(' ', '', $actionStr1);
+$actionClass = $actionStr2.'Action';
+$class = "\\mt\\app\\{$module}\\{$controller}\\{$actionClass}";
+
+$exitCode = 1;
+if (class_exists($class)) {
+    $actionObj = new $class();
+    $actionObj->run($params);
+    $exitCode = 0;
+} else {
+    showLog('route error: class '.$class.' not found.');
+}
+exit($exitCode);
