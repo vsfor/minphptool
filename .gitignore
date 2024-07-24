@@ -2,8 +2,8 @@
 .idea
 .vscode
 .nbproject
-test
-vendor
-.env
-.env.*
+/test/
+/vendor/
+/.env
+/.env.*
 !.env.example

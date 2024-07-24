@@ -1,7 +1,6 @@
 <?php
 namespace mt\app\cmd\app;
 
-
 /**
  * 项目初始化:
  *  设置运行时目录权限

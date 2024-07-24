@@ -1,6 +1,6 @@
 *
 !.gitignore
-!fileIO
-!logs
-!public
-!tmp
+!fileIO/
+!logs/
+!public/
+!tmp/

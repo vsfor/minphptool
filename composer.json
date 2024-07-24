@@ -14,7 +14,8 @@
     ],
     "scripts": {
         "post-create-project-cmd": [
-            "@php mpt -r app/init"
+            "@php mpt -r app/init",
+            "chmod +x mpt"
         ]
     }
 }

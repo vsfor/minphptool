@@ -56,7 +56,7 @@ server {
 // index.php 样例代码
 try {
     defined('J_DEBUG') or define('J_DEBUG', false);//是否调试模式
-    defined('J_ENV') or define('J_ENV', 'debug'); //环境｜主机｜项目
+    defined('J_ENV') or define('J_ENV', 'prod'); //环境｜主机｜项目
 
     Phar::loadPhar(__DIR__ .'/mpt.phar','mpt');
     require_once 'phar://mpt/web/index.php';
