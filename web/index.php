@@ -17,6 +17,7 @@ defined('BATH_PATH') or define('BASE_PATH', dirname(__DIR__)); // 项目路径
 defined('J_DEBUG') or define('J_DEBUG', true);//是否调试模式
 defined('J_ENV') or define('J_ENV', 'demo'); //环境｜主机｜项目
 require BASE_PATH . '/core/autoload.php';
+require BASE_PATH . '/vendor/autoload.php';
 //解析路由
 $route = trim($_SERVER['REQUEST_URI'] ?? '', '/');
 if (strpos($route,'?') !== false) {

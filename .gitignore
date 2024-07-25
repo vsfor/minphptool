@@ -3,7 +3,6 @@
 .vscode
 .nbproject
 /test/
-/vendor/
 /.env
 /.env.*
 !.env.example
