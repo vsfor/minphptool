@@ -23,6 +23,9 @@ class JCli
      */
     public static function confirm($message = 'sure?', $default = false)
     {
+        if (!isCli()) {
+            return false;
+        }
         while (true) {
             static::stdout($message . ' (yes|no) [' . ($default ? 'yes' : 'no') . ']:');
             $input = trim(static::stdin());
@@ -58,6 +61,9 @@ class JCli
      */
     public static function prompt($text, $options = [])
     {
+        if (!isCli()) {
+            return null;
+        }
         $options = JArray::merge(
             [
                 'required' => false,

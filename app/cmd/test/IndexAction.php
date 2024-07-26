@@ -15,7 +15,7 @@ class IndexAction
         showLog($params['msg'] ?? 'hi~');
         showLog(getMicroDate());
         showLog(__FILE__.':'.__LINE__);
-        showLog($_SERVER['argv']);
+        showLog($_SERVER['argv']??'argv is null');
         showLog($params);
         showLog(get_class_methods($this));
         $fun = JCli::prompt('>input the test fun name:',['required' => true]);

@@ -80,7 +80,7 @@ class PackAction
             }
         }
 
-        $phar->setDefaultStub('/run.php','/web/index.php');
+        $phar->setDefaultStub('/mpt','/web/index.php');
 
         showLog('Write requests to the Phar archive, save changes to disk.');
 

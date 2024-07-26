@@ -2,4 +2,4 @@
 !.gitignore
 !config
 !runtime
-!index.php
+!web/index.php

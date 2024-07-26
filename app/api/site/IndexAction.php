@@ -8,7 +8,10 @@ class IndexAction
 {
     public function run()
     {
-        $list = MySQLQuery::find('user')->groupBy(['email'])->all();
+        $list = MySQLQuery::find('user')
+            ->groupBy(['mobile'])
+            ->limit(3)
+            ->all();
         echo JResponse::json([
             'someKey' => 'some value',
             'list' => $list,

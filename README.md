@@ -51,7 +51,7 @@ server {
 }
 ```
 
-- phar 打包后使用nginx部署，可在同级目录创建index.php文件后参考普通模式配置
+- phar 打包后使用nginx部署，可在创建`build/web/index.php`文件后参考普通模式配置
 
 ```php
 // index.php 样例代码
@@ -59,7 +59,7 @@ try {
     defined('J_DEBUG') or define('J_DEBUG', false);//是否调试模式
     defined('J_ENV') or define('J_ENV', 'prod'); //环境｜主机｜项目
 
-    Phar::loadPhar(__DIR__ .'/mpt.phar','mpt');
+    Phar::loadPhar(dirname(__DIR__) .'/mpt.phar','mpt');
     require_once 'phar://mpt/web/index.php';
 } catch (\Throwable $e) {
     var_dump($e->getMessage());
