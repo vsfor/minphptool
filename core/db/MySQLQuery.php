@@ -141,6 +141,120 @@ class MySQLQuery
     }
 
     /**
+     * 增加多条记录,存在冲突则跳过
+     * @param array $columns
+     * @param array $rows
+     * @return bool|int
+     */
+    public function batchInsertOrIgnore(array $columns,array $rows)
+    {
+        $values = [];
+        foreach ($rows as $row) {
+            if (is_array($row)) {
+                $vs = [];
+                foreach ($row as $i => $value) {
+                    if (is_string($value)) {
+                        $value = $this->quoteValue($value);
+                    } elseif ($value === false) {
+                        $value = 0;
+                    } elseif ($value === null) {
+                        $value = 'NULL';
+                    }
+                    $vs[] = $value;
+                }
+            } elseif (is_string($row)) {
+                $value = $this->quoteValue($row);
+                $vs = [$value];
+            } elseif (is_numeric($row)) {
+                $vs = [$row];
+            } elseif ($value === false) {
+                $vs = [0];
+            } elseif ($value === null) {
+                $vs = ['NULL'];
+            } else {
+                throw new \Exception('unknown value type for:'.jsonEncode($row));
+            }
+            $values[] = '(' . implode(', ', $vs) . ')';
+        }
+        $sql = "INSERT IGNORE INTO "
+            . $this->tableName()
+            . " (`" . implode("`, `", $columns) . "`) "
+            . "VALUES " . implode(', ', $values);
+        unset($columns);
+        unset($values);
+        $stmt = $this->getStmt($sql);
+        if (!$stmt) return false;
+        unset($sql);
+        try {
+            $res = $stmt->execute();
+        } catch(\PDOException $e) {
+            throw $e;
+        }
+        if ($res) {
+            return $stmt->rowCount();
+        }
+        return false;
+    }
+
+    /**
+     * 增加多条记录,存在冲突则更新 - 慎用
+     * @param array $columns
+     * @param array $rows
+     * @return bool|int
+     */
+    public function batchInsertOrUpdate(array $columns,array $rows, string $update='`id`=`id`')
+    {
+        $values = [];
+        foreach ($rows as $row) {
+            if (is_array($row)) {
+                $vs = [];
+                foreach ($row as $i => $value) {
+                    if (is_string($value)) {
+                        $value = $this->quoteValue($value);
+                    } elseif ($value === false) {
+                        $value = 0;
+                    } elseif ($value === null) {
+                        $value = 'NULL';
+                    }
+                    $vs[] = $value;
+                }
+            } elseif (is_string($row)) {
+                $value = $this->quoteValue($row);
+                $vs = [$value];
+            } elseif (is_numeric($row)) {
+                $vs = [$row];
+            } elseif ($value === false) {
+                $vs = [0];
+            } elseif ($value === null) {
+                $vs = ['NULL'];
+            } else {
+                throw new \Exception('unknown value type for:'.jsonEncode($row));
+            }
+            $values[] = '(' . implode(', ', $vs) . ')';
+        }
+        $sql = "INSERT IGNORE INTO "
+            . $this->tableName()
+            . " (`" . implode("`, `", $columns) . "`) "
+            . "VALUES " . implode(', ', $values)
+            . " ON DUPLICATE KEY UPDATE "
+            . $update;
+        unset($columns);
+        unset($values);
+        $stmt = $this->getStmt($sql);
+        if (!$stmt) return false;
+        unset($sql);
+        try {
+            $res = $stmt->execute();
+        } catch(\PDOException $e) {
+            throw $e;
+        }
+        if ($res) {
+            return $stmt->rowCount();
+        }
+        return false;
+    }
+
+    /**
      * 删除记录
      * 不推荐直接删除数据
      *
@@ -546,7 +660,7 @@ class MySQLQuery
 
     /**
      * 设置排序
-     * @param string $orderBy
+     * @param string $orderBy eg: `id` desc
      * @return $this
      */
     public function orderBy($orderBy)
@@ -831,12 +945,6 @@ class MySQLQuery
                     $stmt = false;
                 }
             } catch (\Exception $e) {
-                showLog([
-                    'msg' => 'Exception:'.$e->getMessage().':'.$e->getCode(),
-                    'sql' => $sql,
-                    'fl' => $e->getFile().':'.$e->getLine(),
-                ]);
-                exit(__FILE__.':'.__LINE__);
                 JLog::exception($e, [
                     'msg' => 'Exception:'.$e->getMessage().':'.$e->getCode(),
                     'sql' => $sql,
@@ -1053,23 +1161,23 @@ class MySQLQuery
     }
 
     /**
-     * 插入与更新操作,(测试阶段慎用)
-     * @param array $data   map: col => val
-     * @param array $condition  map: col => val
+     * 插入与更新操作,存在冲突则执行更新 —— 慎用，多个唯一索引易出错
+     * @param array $insertData   map: col => val
+     * @param array $updateData  map: col => val
      * @return bool|string
      * @throws \Exception|\PDOException
      */
-    public function insertAndUpdate(array $data, array $condition)
+    public function insertOrUpdate(array $insertData, array $updateData)
     {
-        $cols = array_keys($data);
+        $cols = array_keys($insertData);
         $sql = "INSERT INTO "
             . $this->tableName()
             . " (`" . implode("`, `", $cols) . "`) "
             . "VALUES (:" . implode(", :", $cols) . ")";
 
-        if (!empty($condition)) {
+        if (!empty($updateData)) {
             $str = " ON DUPLICATE KEY UPDATE ";
-            foreach ($condition as $key => $val) {
+            foreach ($updateData as $key => $val) {
                 $str .= "`". $key ."`= :up". $key. ",";
             }
             $sql .= substr($str, 0, -1);
@@ -1077,7 +1185,7 @@ class MySQLQuery
 
         $stmt = $this->getStmt($sql);
         if (!$stmt) return false;
-        foreach ($data as $k => $v) {
+        foreach ($insertData as $k => $v) {
             if ($v === false) {
                 $v = 0;
             } elseif ($v === null) {
@@ -1086,8 +1194,8 @@ class MySQLQuery
             $stmt->bindValue(":{$k}", $v, $this->dataType($v));
         }
 
-        if (!empty($condition)) {
-            foreach ($condition as $key => $val) {
+        if (!empty($updateData)) {
+            foreach ($updateData as $key => $val) {
                 $stmt->bindValue(":up{$key}", $val, $this->dataType($val));
             }
         }
