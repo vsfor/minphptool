@@ -53,13 +53,14 @@ class MySQLQuery
     /**
      * 增加单条记录
      * @param array $data  map: col => val
+     * @param bool $duplicateIgnore  冲突时忽略
      * @return bool|string
      * @throws \Exception|\PDOException
      */
-    public function insert(array $data)
+    public function insert(array $data,bool $duplicateIgnore = false)
     {
         $cols = array_keys($data);
-        $sql = "INSERT INTO "
+        $sql = ($duplicateIgnore ? "INSERT IGNORE INTO " : "INSERT INTO ")
             . $this->tableName()
             . " (`" . implode("`, `", $cols) . "`) "
             . "VALUES (:" . implode(", :", $cols) . ") ";
