@@ -133,3 +133,24 @@ function appIsDebug() {
     $env = strtolower(J_ENV);
     return in_array($env,['debug','local','test','dev','develop','development','alpha']);
 }
+
+/**
+ * @param object|mixed $obj
+ * @param $filter
+ * @return array
+ * @throws ReflectionException
+ */
+function getClassMethods($obj,$filter=null) {
+    if (is_string($obj)) {
+        $className = $obj;
+    } else {
+        $className = get_class($obj);
+    }
+    $refClass = new \ReflectionClass($className);
+    $refMethods = $refClass->getMethods($filter);
+    $list = [];
+    foreach ($refMethods as $method) {
+        $list[] = $method->name;
+    }
+    return $list;
+}
