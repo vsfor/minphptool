@@ -17,6 +17,7 @@ return [
         '/config/',
         '/runtime/',
         '/test/',
+        '/theme/',
         '.gitignore',
         '.idea',
         '.git',
