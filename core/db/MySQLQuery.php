@@ -2,6 +2,7 @@
 namespace mt\core\db;
 
 use mt\core\lib\JArray;
+use mt\core\lib\JConfig;
 use mt\core\lib\JLog;
 
 /**
@@ -29,8 +30,6 @@ class MySQLQuery
 
     protected $sql='';
 
-    public $diy = '';//主要用于标记区分数据库连接  进程|协程
-
     protected $_dbName = null;
     protected $_tbName = null;
 
@@ -44,11 +43,12 @@ class MySQLQuery
      * @param string $table tableName
      * @param string $db connConfigName
      */
-    public function __construct(string $table,string $db = 'db')
+    private function __construct(string $table,string $db = 'db')
     {
         $this->setTable($table);
         $this->setDb($db);
     }
+    private function __clone() {}
 
     /**
      * 增加单条记录
@@ -897,27 +897,29 @@ class MySQLQuery
     }
 
     /**
-     * 释放数据库连接
-     * @param null $db
-     * @param null $diy
-     */
-    public function releaseConn($db=null,$diy=null)
-    {
-        $db = $db ?? $this->dbName();
-        $diy = $diy ?? $this->diy;
-        MySQLConnection::release($db, $diy);
-        return $this;
-    }
-
-    /**
      * 获取数据库连接
      * @param bool $refresh
      * @return \PDO
      */
     private function getConn($refresh = false)
     {
-        return MySQLConnection::getInstance($this->dbName(), $this->diy, $refresh)->getConnection();
+        if (empty($this->conn) || $refresh) {
+            $config = JConfig::getEnv('mysql', $this->dbName());
+            $options = [
+                \PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES {$config['charset']}",
+            ];
+            $this->conn = new \PDO($config['dsn'], $config['username'], $config['password'], $options);
+            $this->conn->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+            $this->conn->setAttribute(\PDO::ATTR_STRINGIFY_FETCHES, false);
+            $this->conn->setAttribute(\PDO::ATTR_EMULATE_PREPARES, false);
+            $this->conn->setAttribute(\PDO::ATTR_PERSISTENT,true);
+            //解决"this is incompatible with sql_mode=only_full_group_by:42000"查询模式问题
+            $this->conn->prepare("set session sql_mode='NO_ENGINE_SUBSTITUTION'")->execute();
+        }
+        return $this->conn;
     }
+    /** @var \PDO */
+    private $conn;
 
     /**
      * 预处理sql语句
@@ -930,8 +932,11 @@ class MySQLQuery
             $stmt = $this->getConn()->prepare($sql);
         } catch (\Exception $e) {
             try {
+                JLog::exception($e, [
+                    'msg' => 'getStmtException:'.$e->getMessage().':'.$e->getCode(),
+                    'sql' => $sql,
+                ],'mysql');
                 $msg = strtolower($e->getMessage());
-                showLog($msg);
                 if (strpos($msg, 'server has gone away')) {
 //PDO::prepare(): MySQL server has gone away
                     $stmt = $this->getConn(true)->prepare($sql);
@@ -939,15 +944,11 @@ class MySQLQuery
 //PDO::prepare(): send of *** bytes failed with errno=110 Connection timed out
                     $stmt = $this->getConn(true)->prepare($sql);
                 } else {
-                    JLog::exception($e, [
-                        'msg' => 'Exception:'.$e->getMessage().':'.$e->getCode(),
-                        'sql' => $sql,
-                    ],'mysql');
                     $stmt = false;
                 }
             } catch (\Exception $e) {
                 JLog::exception($e, [
-                    'msg' => 'Exception:'.$e->getMessage().':'.$e->getCode(),
+                    'msg' => 'getStmtRetryException:'.$e->getMessage().':'.$e->getCode(),
                     'sql' => $sql,
                     'fl' => $e->getFile().':'.$e->getLine(),
                 ],'mysql');
@@ -1168,7 +1169,7 @@ class MySQLQuery
      * @return bool|string
      * @throws \Exception|\PDOException
      */
-    public function insertOrUpdate(array $insertData, array $updateData)
+    public function insertOrUpdate(array $insertData, array $updateData = [])
     {
         $cols = array_keys($insertData);
         $sql = "INSERT INTO "

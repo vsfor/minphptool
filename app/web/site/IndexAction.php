@@ -12,6 +12,7 @@ class IndexAction
             ->groupBy(['mobile'])
             ->limit(3)
             ->all();
+        array_unshift($list, ['a' => 'b']);
         echo JView::render('index', [
             'list' => $list,
         ]);

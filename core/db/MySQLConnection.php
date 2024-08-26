@@ -7,6 +7,8 @@ use mt\core\lib\JConfig;
  * mysql pdo连接
  * 使用场景复杂时，可结合 参数：diy 区分逻辑流程
  * 避免使用同一个连接，导致事务或其他逻辑异常
+ *
+ * @deprecated 逻辑复杂度较高时，常会出现连接丢失的情况；不推荐使用
  */
 class MySQLConnection
 {
