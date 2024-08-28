@@ -19,6 +19,8 @@ use mt\core\lib\JLog;
  */
 class MySQLQuery
 {
+    public $tmpSql;//调试用
+
     protected $select='*';
     protected $where='';
     protected $params=[]; //以 :param 占位符为标准   统一禁用 ? 占位符
@@ -59,34 +61,79 @@ class MySQLQuery
      */
     public function insert(array $data,bool $duplicateIgnore = false)
     {
+        $result = false;
         $cols = array_keys($data);
         $sql = ($duplicateIgnore ? "INSERT IGNORE INTO " : "INSERT INTO ")
             . $this->tableName()
             . " (`" . implode("`, `", $cols) . "`) "
             . "VALUES (:" . implode(", :", $cols) . ") ";
-        $stmt = $this->getStmt($sql);
-        if (!$stmt) return false;
-        foreach ($data as $k => $v) {
-            if ($v === false) {
-                $v = 0;
-            } elseif ($v === null) {
-                $v = 'NULL';
-            }
-            $stmt->bindValue(":{$k}", $v, $this->dataType($v));
-        }
+        $this->tmpSql = $sql;
+
+        $this->beginTransaction();
         try {
-            $res = $stmt->execute();
-        } catch(\PDOException $e) {
+            $stmt = $this->getStmt($sql);
+            foreach ($data as $k => $v) {
+                $stmt->bindValue(":{$k}", $v, $this->dataType($v));
+            }
+
+            if ($stmt->execute()) {
+                $result = (int) $this->getLastInsertId();
+            }
+            $this->commit();
+            return $result;
+        } catch (\Throwable $e) {
+            $this->rollBack();
             throw $e;
         }
-        if ($res) {
-            return $this->getConn()->lastInsertId();
-        }
-        return false;
     }
 
     /**
-     * 增加多条记录
+     * 插入与更新操作,存在冲突则执行更新 —— 慎用，多个唯一索引易出错
+     * @param array $insertData   map: col => val
+     * @param array $updateData  map: col => val
+     * @return bool|string
+     * @throws \Exception|\PDOException
+     */
+    public function insertOrUpdate(array $insertData, array $updateData)
+    {
+        $result = false;
+        $cols = array_keys($insertData);
+        $sql = "INSERT INTO "
+            . $this->tableName()
+            . " (`" . implode("`, `", $cols) . "`) "
+            . "VALUES (:" . implode(", :", $cols) . ")";
+
+        $str = " ON DUPLICATE KEY UPDATE ";
+        foreach ($updateData as $key => $val) {
+            $str .= "`". $key ."`= :up_". $key. ",";
+        }
+        $sql .= substr($str, 0, -1);
+        $this->tmpSql = $sql;
+
+        $this->beginTransaction();
+        try {
+            $stmt = $this->getStmt($sql);
+            foreach ($insertData as $k => $v) {
+                $stmt->bindValue(":{$k}", $v, $this->dataType($v));
+            }
+
+            foreach ($updateData as $k => $v) {
+                $stmt->bindValue(":up_{$k}", $v, $this->dataType($v));
+            }
+
+            if ($stmt->execute()) {
+                $result = $this->getConn()->lastInsertId();
+            }
+            $this->commit();
+            return $result;
+        } catch (\Throwable $e) {
+            $this->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
+     * 增加多条记录  数量不易过多
      * @param array $columns
      * @param array $rows
      * @return bool|int
@@ -127,15 +174,10 @@ class MySQLQuery
             . "VALUES " . implode(', ', $values);
         unset($columns);
         unset($values);
+        $this->tmpSql = $sql;
+
         $stmt = $this->getStmt($sql);
-        if (!$stmt) return false;
-        unset($sql);
-        try {
-            $res = $stmt->execute();
-        } catch(\PDOException $e) {
-            throw $e;
-        }
-        if ($res) {
+        if ($stmt->execute()) {
             return $stmt->rowCount();
         }
         return false;
@@ -183,22 +225,17 @@ class MySQLQuery
             . "VALUES " . implode(', ', $values);
         unset($columns);
         unset($values);
+        $this->tmpSql = $sql;
+
         $stmt = $this->getStmt($sql);
-        if (!$stmt) return false;
-        unset($sql);
-        try {
-            $res = $stmt->execute();
-        } catch(\PDOException $e) {
-            throw $e;
-        }
-        if ($res) {
+        if ($stmt->execute()) {
             return $stmt->rowCount();
         }
         return false;
     }
 
     /**
-     * 增加多条记录,存在冲突则更新 - 慎用
+     * 增加多条记录,存在冲突则更新 - 慎用，更新为批量操作
      * @param array $columns
      * @param array $rows
      * @return bool|int
@@ -241,15 +278,10 @@ class MySQLQuery
             . $update;
         unset($columns);
         unset($values);
+        $this->tmpSql = $sql;
+
         $stmt = $this->getStmt($sql);
-        if (!$stmt) return false;
-        unset($sql);
-        try {
-            $res = $stmt->execute();
-        } catch(\PDOException $e) {
-            throw $e;
-        }
-        if ($res) {
+        if ($stmt->execute()) {
             return $stmt->rowCount();
         }
         return false;
@@ -270,20 +302,17 @@ class MySQLQuery
             $condition = $temp['sql'];
             $params = array_merge($temp['params'], $params);
         }
-        $sql = "DELETE FROM "
+        $sql = 'DELETE FROM '
             . $this->tableName()
-            . " WHERE $condition";
+            . ' WHERE '
+            . $condition;
+        $this->tmpSql = $sql;
+
         $stmt = $this->getStmt($sql);
-        if (!$stmt) return false;
         foreach ($params as $k => $v) {
             $stmt->bindValue($k, $v, $this->datatype($v));
         }
-        try {
-            $res = $stmt->execute();
-        } catch(\PDOException $e) {
-            throw $e;
-        }
-        if ($res) {
+        if ($stmt->execute()) {
             return $stmt->rowCount();
         }
         return false;
@@ -312,13 +341,13 @@ class MySQLQuery
             $condition = $temp['sql'];
             $params = array_merge($temp['params'], $params);
         }
-        $sql = "UPDATE "
+        $sql = 'UPDATE '
             . $this->tableName()
-            . " SET " . implode(", ", $sets)
-            . (($condition) ? " WHERE $condition" : "");
-        $stmt = $this->getStmt($sql);
-        if (!$stmt) return false;
+            . ' SET ' . implode(', ', $sets)
+            . (($condition) ? ' WHERE '.$condition : '');
+        $this->tmpSql = $sql;
 
+        $stmt = $this->getStmt($sql);
         foreach ($vals as $k => $v) {
             $stmt->bindValue($k, $v, $this->datatype($v));
         }
@@ -326,8 +355,7 @@ class MySQLQuery
             $stmt->bindValue($k, $v, $this->datatype($v));
         }
 
-        $res = $stmt->execute();
-        if ($res) {
+        if ($stmt->execute()) {
             return $stmt->rowCount();
         }
         return false;
@@ -356,20 +384,17 @@ class MySQLQuery
             $condition = $temp['sql'];
             $params = array_merge($temp['params'], $params);
         }
-        $sql = "UPDATE "
+        $sql = 'UPDATE '
             . $this->tableName()
-            . " SET " . implode(", ", $sets)
-            . (($condition) ? " WHERE $condition" : "");
+            . ' SET ' . implode(', ', $sets)
+            . (($condition) ? ' WHERE '.$condition : '');
 
         $stmt = $this->getStmt($sql);
-        if (!$stmt) return false;
-
         foreach ($params as $k => $v) {
             $stmt->bindValue($k, $v, $this->datatype($v));
         }
 
-        $res = $stmt->execute();
-        if ($res) {
+        if ($stmt->execute()) {
             return $stmt->rowCount();
         }
         return false;
@@ -385,20 +410,18 @@ class MySQLQuery
     {
         $this->limit(1);
         $sql = $this->getSql();
+        $this->tmpSql = $sql;
+
         $stmt = $this->getStmt($sql);
-        if (!$stmt) return false;
         foreach ($this->params as $k => $v) {
             $stmt->bindValue($k, $v, $this->dataType($v));
         }
+
         if ($flush) {
             $this->flushQuery();
         }
-        try {
-            $res = $stmt->execute();
-        } catch(\PDOException $e) {
-            throw $e;
-        }
-        if($res) {
+
+        if($stmt->execute()) {
             return $stmt->fetch(\PDO::FETCH_ASSOC);
         }
         return false;
@@ -414,20 +437,18 @@ class MySQLQuery
     public function all($flush = true)
     {
         $sql = $this->getSql();
+        $this->tmpSql = $sql;
+
         $stmt = $this->getStmt($sql);
-        if (!$stmt) return false;
         foreach ($this->params as $k => $v) {
             $stmt->bindValue($k, $v, $this->dataType($v));
         }
+
         if ($flush) {
             $this->flushQuery();
         }
-        try {
-            $res = $stmt->execute();
-        } catch(\PDOException $e) {
-            throw $e;
-        }
-        if($res) {
+
+        if($stmt->execute()) {
             return $stmt->fetchAll(\PDO::FETCH_ASSOC);
         }
         return false;
@@ -442,20 +463,18 @@ class MySQLQuery
     public function column($flush = true)
     {
         $sql = $this->getSql();
+        $this->tmpSql = $sql;
+
         $stmt = $this->getStmt($sql);
-        if (!$stmt) return false;
         foreach ($this->params as $k => $v) {
             $stmt->bindValue($k, $v, $this->dataType($v));
         }
+
         if ($flush) {
             $this->flushQuery();
         }
-        try {
-            $res = $stmt->execute();
-        } catch(\PDOException $e) {
-            throw $e;
-        }
-        if($res) {
+
+        if($stmt->execute()) {
             return $stmt->fetchAll(\PDO::FETCH_COLUMN);
         }
         return false;
@@ -468,34 +487,68 @@ class MySQLQuery
      * @param bool|mixed $flush  flush params after query execute
      * @return bool|int|mixed
      */
-    public function count($q='*', $flush = false)
+    public function count($q = '*', $flush = false)
     {
-        $sql =  "SELECT COUNT(";
+        $sql =  'SELECT COUNT(';
         if($this->distinct) {
-            $sql .= " DISTINCT ";
+            $sql .= ' DISTINCT ';
         }
-        $sql .= $q .") FROM ".$this->tableName();
-        if($this->where) {
-            $sql .= " WHERE {$this->where}";
+        $sql .= $q .') FROM '.$this->tableName();
+        if ($this->where) {
+            $sql .= ' WHERE '.$this->where;
         }
-        if($this->group) {
-            $sql .= " GROUP BY {$this->group}";
+        if ($this->group) {
+            $sql .= ' GROUP BY '.$this->group;
         }
+        $this->tmpSql = $sql;
 
         $stmt = $this->getStmt($sql);
-        if (!$stmt) return false;
         foreach ($this->params as $k => $v) {
             $stmt->bindValue($k, $v, $this->dataType($v));
         }
+
         if ($flush) {
             $this->flushQuery();
         }
-        try {
-            $res = $stmt->execute();
-        } catch(\PDOException $e) {
-            throw $e;
+
+        if($stmt->execute()) {
+            return $stmt->fetchColumn(0);
         }
-        if($res) {
+        return 0;
+    }
+
+    /**
+     * 求和
+     *
+     * @param string $column
+     * @param bool|mixed $flush  flush params after query execute
+     * @return bool|int|mixed
+     */
+    public function sum($column, $flush = false)
+    {
+        $sql =  'SELECT sum(';
+        if($this->distinct) {
+            $sql .= ' DISTINCT ';
+        }
+        $sql .= $column .') FROM '.$this->tableName();
+        if ($this->where) {
+            $sql .= ' WHERE '.$this->where;
+        }
+        if ($this->group) {
+            $sql .= ' GROUP BY '.$this->group;
+        }
+        $this->tmpSql = $sql;
+
+        $stmt = $this->getStmt($sql);
+        foreach ($this->params as $k => $v) {
+            $stmt->bindValue($k, $v, $this->dataType($v));
+        }
+
+        if ($flush) {
+            $this->flushQuery();
+        }
+
+        if($stmt->execute()) {
             return $stmt->fetchColumn(0);
         }
         return 0;
@@ -511,20 +564,18 @@ class MySQLQuery
     {
         $this->limit(1);
         $sql = $this->getSql();
+        $this->tmpSql = $sql;
+
         $stmt = $this->getStmt($sql);
-        if (!$stmt) return false;
         foreach ($this->params as $k => $v) {
             $stmt->bindValue($k, $v, $this->dataType($v));
         }
+
         if ($flush) {
             $this->flushQuery();
         }
-        try {
-            $res = $stmt->execute();
-        } catch(\PDOException $e) {
-            throw $e;
-        }
-        if ($res) {
+
+        if ($stmt->execute()) {
             return $stmt->fetchColumn(0);
         }
         return false;
@@ -720,28 +771,68 @@ class MySQLQuery
      */
     public function getSql()
     {
-        if($this->sql) return $this->sql;
-        $this->sql .=  "SELECT ";
-        if($this->distinct) {
-            $this->sql .= " DISTINCT ";
+        if ($this->sql) {
+            return $this->sql;
         }
-        $this->sql .= $this->select ." FROM ".$this->tableName();
+
+        $this->sql .=  'SELECT ';
+        if($this->distinct) {
+            $this->sql .= ' DISTINCT ';
+        }
+        $this->sql .= $this->select .' FROM '.$this->tableName();
         if($this->where) {
-            $this->sql .= " WHERE {$this->where}";
+            $this->sql .= ' WHERE '.$this->where;
         }
         if($this->group) {
-            $this->sql .= " GROUP BY {$this->group}";
+            $this->sql .= ' GROUP BY '.$this->group;
         }
         if($this->order) {
-            $this->sql .= " ORDER BY {$this->order}";
+            $this->sql .= ' ORDER BY '.$this->order;
         }
         if($this->limit) {
-            $this->sql .= " LIMIT ".$this->limit;
+            $this->sql .= ' LIMIT '.$this->limit;
         }
         if($this->offset) {
-            $this->sql .= $this->limit ? " OFFSET ".$this->offset : " LIMIT {$this->offset},2147483647";
+            $this->sql .= $this->limit ? ' OFFSET '.$this->offset : ' LIMIT '.$this->offset.',2147483647';
         }
+
         return $this->sql;
+    }
+
+    /**
+     * 获取查询语句 - 包含参数值，调试用
+     * @return string
+     */
+    public function getRawSql()
+    {
+        if(!$this->sql) $this->sql = $this->getSql();
+        if(empty($this->params)) {
+            return $this->sql;
+        }
+        $params = [];
+        foreach ($this->params as $name => $value) {
+            if (is_string($name) && strncmp(':', $name, 1)) {
+                $name = ':' . $name;
+            }
+            if (is_string($value)) {
+                $params[$name] = $this->quoteValue($value);
+            } elseif (is_bool($value)) {
+                $params[$name] = ($value ? 'TRUE' : 'FALSE');
+            } elseif ($value === null) {
+                $params[$name] = 'NULL';
+            } elseif (!is_object($value) && !is_resource($value)) {
+                $params[$name] = $value;
+            }
+        }
+        if (!isset($params[1])) {
+            return strtr($this->sql, $params);
+        }
+        $sql = '';
+        foreach (explode('?', $this->sql) as $i => $part) {
+            $sql .= (isset($params[$i]) ? $params[$i] : '') . $part;
+        }
+
+        return $sql;
     }
 
     /**
@@ -785,7 +876,6 @@ class MySQLQuery
 
     /**
      * 开启事务
-     * @deprecated 不推荐使用事务
      * @return bool
      */
     protected function beginTransaction()
@@ -795,7 +885,6 @@ class MySQLQuery
 
     /**
      * 事务提交
-     * @deprecated 不推荐使用事务
      * @return bool
      */
     protected function commit()
@@ -805,48 +894,11 @@ class MySQLQuery
 
     /**
      * 事务回滚
-     * @deprecated 不推荐使用事务
      * @return bool
      */
     protected function rollBack()
     {
         return $this->getConn()->rollBack();
-    }
-
-    /**
-     * 获取查询语句 - 包含参数值，调试用
-     * @return string
-     */
-    public function getRawSql()
-    {
-        if(!$this->sql) $this->sql = $this->getSql();
-        if(empty($this->params)) {
-            return $this->sql;
-        }
-        $params = [];
-        foreach ($this->params as $name => $value) {
-            if (is_string($name) && strncmp(':', $name, 1)) {
-                $name = ':' . $name;
-            }
-            if (is_string($value)) {
-                $params[$name] = $this->quoteValue($value);
-            } elseif (is_bool($value)) {
-                $params[$name] = ($value ? 'TRUE' : 'FALSE');
-            } elseif ($value === null) {
-                $params[$name] = 'NULL';
-            } elseif (!is_object($value) && !is_resource($value)) {
-                $params[$name] = $value;
-            }
-        }
-        if (!isset($params[1])) {
-            return strtr($this->sql, $params);
-        }
-        $sql = '';
-        foreach (explode('?', $this->sql) as $i => $part) {
-            $sql .= (isset($params[$i]) ? $params[$i] : '') . $part;
-        }
-
-        return $sql;
     }
 
     /**
@@ -879,18 +931,11 @@ class MySQLQuery
     public function query($sql, $params = [])
     {
         $stmt = $this->getStmt($sql);
-        if (!$stmt) {
-            return false;
-        }
         foreach ($params as $k => $v) {
             $stmt->bindValue($k, $v, $this->dataType($v));
         }
-        try {
-            $res = $stmt->execute();
-        } catch(\PDOException $e) {
-            throw $e;
-        }
-        if ($res) {
+
+        if ($stmt->execute()) {
             return $stmt->fetchAll(\PDO::FETCH_ASSOC);
         }
         return false;
@@ -944,7 +989,7 @@ class MySQLQuery
 //PDO::prepare(): send of *** bytes failed with errno=110 Connection timed out
                     $stmt = $this->getConn(true)->prepare($sql);
                 } else {
-                    $stmt = false;
+                    throw $e;
                 }
             } catch (\Exception $e) {
                 JLog::exception($e, [
@@ -952,7 +997,7 @@ class MySQLQuery
                     'sql' => $sql,
                     'fl' => $e->getFile().':'.$e->getLine(),
                 ],'mysql');
-                $stmt = false;
+                throw $e;
             }
         }
         return $stmt;
@@ -1160,56 +1205,6 @@ class MySQLQuery
         $this->distinct = false;
         $this->sql = '';
         return $this;
-    }
-
-    /**
-     * 插入与更新操作,存在冲突则执行更新 —— 慎用，多个唯一索引易出错
-     * @param array $insertData   map: col => val
-     * @param array $updateData  map: col => val
-     * @return bool|string
-     * @throws \Exception|\PDOException
-     */
-    public function insertOrUpdate(array $insertData, array $updateData = [])
-    {
-        $cols = array_keys($insertData);
-        $sql = "INSERT INTO "
-            . $this->tableName()
-            . " (`" . implode("`, `", $cols) . "`) "
-            . "VALUES (:" . implode(", :", $cols) . ")";
-
-        if (!empty($updateData)) {
-            $str = " ON DUPLICATE KEY UPDATE ";
-            foreach ($updateData as $key => $val) {
-                $str .= "`". $key ."`= :up". $key. ",";
-            }
-            $sql .= substr($str, 0, -1);
-        }
-
-        $stmt = $this->getStmt($sql);
-        if (!$stmt) return false;
-        foreach ($insertData as $k => $v) {
-            if ($v === false) {
-                $v = 0;
-            } elseif ($v === null) {
-                $v = 'NULL';
-            }
-            $stmt->bindValue(":{$k}", $v, $this->dataType($v));
-        }
-
-        if (!empty($updateData)) {
-            foreach ($updateData as $key => $val) {
-                $stmt->bindValue(":up{$key}", $val, $this->dataType($val));
-            }
-        }
-        try {
-            $res = $stmt->execute();
-        } catch(\PDOException $e) {
-            throw $e;
-        }
-        if ($res) {
-            return $this->getConn()->lastInsertId();
-        }
-        return false;
     }
 
 }
